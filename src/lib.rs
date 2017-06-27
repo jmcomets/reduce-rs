@@ -10,7 +10,7 @@ use std::str::FromStr;
 use nom::{digit, multispace, IError};
 
 pub enum Expr {
-    Value(i64),
+    Value(Arg),
     Add(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
@@ -29,7 +29,7 @@ impl Display for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
         use self::Expr::*;
         match *self {
-            Value(val) => write!(format, "{}", val),
+            Value(ref val) => write!(format, "{}", val),
             Add(ref left, ref right) => write!(format, "{} + {}", left, right),
             Sub(ref left, ref right) => write!(format, "{} - {}", left, right),
             Mul(ref left, ref right) => write!(format, "{} * {}", left, right),
@@ -43,13 +43,35 @@ impl Debug for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
         use self::Expr::*;
         match *self {
-            Value(val) => write!(format, "{}", val),
+            Value(ref val) => write!(format, "{:?}", val),
             Add(ref left, ref right) => write!(format, "({:?} + {:?})", left, right),
             Sub(ref left, ref right) => write!(format, "({:?} - {:?})", left, right),
             Mul(ref left, ref right) => write!(format, "({:?} * {:?})", left, right),
             Div(ref left, ref right) => write!(format, "({:?} / {:?})", left, right),
             Paren(ref expr) => write!(format, "[{:?}]", expr),
         }
+    }
+}
+
+pub struct Arg(i64);
+
+impl Display for Arg {
+    fn fmt(&self, format: &mut Formatter) -> fmt::Result {
+        write!(format, "{}", self.0)
+    }
+}
+
+impl Debug for Arg {
+    fn fmt(&self, format: &mut Formatter) -> fmt::Result {
+        write!(format, "{:?}", self.0)
+    }
+}
+
+impl FromStr for Arg {
+    type Err = <i64 as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        <i64 as FromStr>::from_str(s).map(Arg)
     }
 }
 
