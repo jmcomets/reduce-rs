@@ -7,7 +7,11 @@ use std::fmt::{Display, Debug, Formatter};
 use std::str;
 use std::str::FromStr;
 
+use std::ops::{Add, Sub, Mul, Div};
+
 use nom::{digit, IError};
+
+type Arg = i32;
 
 pub enum Expr {
     Value(Arg),
@@ -16,6 +20,27 @@ pub enum Expr {
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
     Paren(Box<Expr>),
+}
+
+trait Eval {
+    type Output: Add<Output=Self::Output> + Sub<Output=Self::Output> + Mul<Output=Self::Output> + Div<Output=Self::Output>;
+
+    fn eval(&self, arg: &Arg) -> Self::Output;
+}
+
+fn eval<F, V>(expr: &Expr, f: &F) -> V
+    where 
+          F: Fn(&Arg) -> V,
+          V: Add<Output=V> + Sub<Output=V> + Mul<Output=V> + Div<Output=V>
+{
+    match expr {
+        &Expr::Value(ref val)           => f(val),
+        &Expr::Add(ref left, ref right) => eval(left, f) + eval(right, f),
+        &Expr::Sub(ref left, ref right) => eval(left, f) - eval(right, f),
+        &Expr::Mul(ref left, ref right) => eval(left, f) * eval(right, f),
+        &Expr::Div(ref left, ref right) => eval(left, f) / eval(right, f),
+        &Expr::Paren(ref expr)          => eval(expr, f),
+    }
 }
 
 pub enum Oper {
@@ -50,28 +75,6 @@ impl Debug for Expr {
             Div(ref left, ref right) => write!(format, "({:?} / {:?})", left, right),
             Paren(ref expr) => write!(format, "[{:?}]", expr),
         }
-    }
-}
-
-pub struct Arg(i64);
-
-impl Display for Arg {
-    fn fmt(&self, format: &mut Formatter) -> fmt::Result {
-        write!(format, "{}", self.0)
-    }
-}
-
-impl Debug for Arg {
-    fn fmt(&self, format: &mut Formatter) -> fmt::Result {
-        write!(format, "{:?}", self.0)
-    }
-}
-
-impl FromStr for Arg {
-    type Err = <i64 as FromStr>::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        <i64 as FromStr>::from_str(s).map(Arg)
     }
 }
 
@@ -196,5 +199,17 @@ mod tests {
     fn parens_test() {
         assert_eq!(expr(&b" ( 1 + 2 ) *  3 "[..]).map(|x| format!("{:?}", x)),
                 IResult::Done(&b""[..], String::from("([(1 + 2)] * 3)")));
+    }
+
+    #[test]
+    fn multidigit_test() {
+        assert_eq!(expr(&b"10"[..]).map(|x| format!("{:?}", x)),
+                IResult::Done(&b""[..], "10".to_string()));
+    }
+
+    #[test]
+    fn eval_test() {
+        assert_eq!(expr(&b" ( 1 + 2 ) *  3 "[..]).map(|x| eval(&x, &|x| x.clone())),
+                IResult::Done(&b""[..], 9));
     }
 }
