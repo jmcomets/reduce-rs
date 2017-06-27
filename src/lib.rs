@@ -7,7 +7,7 @@ use std::fmt::{Display, Debug, Formatter};
 use std::str;
 use std::str::FromStr;
 
-use nom::{digit, multispace, IError};
+use nom::{digit, IError};
 
 pub enum Expr {
     Value(Arg),
@@ -75,18 +75,25 @@ impl FromStr for Arg {
     }
 }
 
-named!(parens< Expr >, delimited!(
-    delimited!(opt!(multispace), tag!("("), opt!(multispace)),
-    map!(map!(expr, Box::new), Expr::Paren),
-    delimited!(opt!(multispace), tag!(")"), opt!(multispace))
-  )
+named!(parens< Expr >, ws!(
+    delimited!(
+        tag!("("),
+        map!(
+            map!(
+                expr,
+                Box::new
+            ),
+            Expr::Paren
+        ),
+        tag!(")"))
+    )
 );
 
 named!(factor< Expr >, alt_complete!(
     map!(
       map_res!(
         map_res!(
-          delimited!(opt!(multispace), digit, opt!(multispace)),
+          ws!(digit),
           str::from_utf8
         ),
       FromStr::from_str
