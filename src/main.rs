@@ -2,7 +2,8 @@ extern crate reduce;
 
 extern crate docopt;
 extern crate serde;
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 
 use std::io;
 use std::io::{Write, BufRead, BufReader};
@@ -54,10 +55,10 @@ impl<'de> Visitor<'de> for ReturnTypeVisitor {
         where E: Error
     {
         match s {
-            "bool"  => Ok(ReturnType::Boolean),
+            "bool" => Ok(ReturnType::Boolean),
             "float" => Ok(ReturnType::Floating),
-            "int"   => Ok(ReturnType::Integer),
-            _       => Err(Error::custom(format!("invalid type {}", s))),
+            "int" => Ok(ReturnType::Integer),
+            _ => Err(Error::custom(format!("invalid type {}", s))),
         }
     }
 }
@@ -93,21 +94,30 @@ fn main() {
         .unwrap_or_else(|e| e.exit());
     //println!("args: {:?}", args);
 
-    let init = args.arg_init.map(|v| v.parse::<i32>().unwrap()).unwrap_or(0);
+    let init = args.arg_init
+        .map(|v| v.parse::<i32>().unwrap())
+        .unwrap_or(0);
     let lambda = parse_input(&args.arg_lambda, args.flag_type).unwrap();
     //println!("evaluating: {:?}", lambda);
 
     let input = io::stdin();
     let reader = BufReader::new(input.lock());
 
-    let value = reader.lines()
+    let value = reader
+        .lines()
         .enumerate()
-        .map(|(i, r)| r.unwrap_or_else(|e| {
-            let mut err = io::stderr();
-            writeln!(err, "Failed to read line {}: {:?}", i, e).unwrap();
-            process::exit(1);
-        }))
-        .map(|l| l.split(" ").map(|s| s.parse::<i32>().unwrap()).collect::<Vec<_>>())
+        .map(|(i, r)| {
+                 r.unwrap_or_else(|e| {
+                                      let mut err = io::stderr();
+                                      writeln!(err, "Failed to read line {}: {:?}", i, e).unwrap();
+                                      process::exit(1);
+                                  })
+             })
+        .map(|l| {
+                 l.split(" ")
+                     .map(|s| s.parse::<i32>().unwrap())
+                     .collect::<Vec<_>>()
+             })
         .fold(init, |acc, vs| lambda.eval(&vs, acc).unwrap());
 
     println!("{}", value);
