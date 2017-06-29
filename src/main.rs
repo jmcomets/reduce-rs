@@ -4,6 +4,11 @@ extern crate docopt;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 
+use std::io;
+use std::io::{Write, BufRead, BufReader};
+
+use std::process;
+
 use std::fmt;
 
 use docopt::Docopt;
@@ -86,12 +91,28 @@ fn main() {
     let args: Args = Docopt::new(USAGE)
         .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
-    println!("{:?}", args);
+    //println!("args: {:?}", args);
 
+    let init = args.arg_init.map(|v| v.parse::<i32>().unwrap()).unwrap_or(0);
     let lambda = parse_input(&args.arg_lambda, args.flag_type).unwrap();
-    println!("{:?}", lambda);
+    //println!("evaluating: {:?}", lambda);
+
+    let input = io::stdin();
+    let reader = BufReader::new(input.lock());
+
+    let value = reader.lines()
+        .enumerate()
+        .map(|(i, r)| r.unwrap_or_else(|e| {
+            let mut err = io::stderr();
+            writeln!(err, "Failed to read line {}: {:?}", i, e).unwrap();
+            process::exit(1);
+        }))
+        .map(|l| l.split(" ").map(|s| s.parse::<i32>().unwrap()).collect::<Vec<_>>())
+        .fold(init, |acc, vs| lambda.eval(&vs, acc).unwrap());
+
+    println!("{}", value);
 }
 
-fn parse_input(s: &str, _: ReturnType) -> Result<reduce::Lambda, reduce::Error> {
+fn parse_input(s: &str, _: ReturnType) -> Result<reduce::Lambda, reduce::ParseError> {
     reduce::Lambda::from_str(s)
 }

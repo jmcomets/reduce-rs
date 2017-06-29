@@ -11,10 +11,42 @@ use std::ops::{Add, Sub, Mul, Div};
 
 use nom::{digit, IError};
 
-type Arg = i32;
+#[derive(Debug)]
+pub struct Lambda(Expr);
+
+impl Lambda {
+    pub fn from_str(s: &str) -> Result<Lambda, ParseError> {
+        expr(s.as_bytes())
+            .to_full_result()
+            .map(Lambda)
+            .map_err(ParseError)
+    }
+
+    pub fn eval<V>(&self, vals: &[V], acc: V) -> Result<V, ValidationError>
+        where V: Add<Output=V> + Sub<Output=V> + Mul<Output=V> + Div<Output=V> + Clone
+    {
+        if !self.0.iter().all(|i| i <= vals.len()) {
+            return Err(ValidationError);
+        }
+
+        Ok(self.0.eval_with(&|i| {
+            if i == 0 {
+                acc.clone()
+            } else {
+                vals[i - 1].clone()
+            }
+        }))
+    }
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct ParseError(IError);
+
+#[derive(Eq, PartialEq, Debug)]
+pub struct ValidationError;
 
 pub enum Expr {
-    Value(Arg),
+    Value(usize),
     Add(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
@@ -22,24 +54,62 @@ pub enum Expr {
     Paren(Box<Expr>),
 }
 
-trait Eval {
-    type Output: Add<Output=Self::Output> + Sub<Output=Self::Output> + Mul<Output=Self::Output> + Div<Output=Self::Output>;
+impl Expr {
+    pub fn eval(&self) -> usize {
+        self.eval_with(&|v| v)
+    }
 
-    fn eval(&self, arg: &Arg) -> Self::Output;
+    pub fn eval_with<F, V>(&self, f: &F) -> V
+        where F: Fn(usize) -> V,
+            V: Add<Output=V> + Sub<Output=V> + Mul<Output=V> + Div<Output=V>
+    {
+        use Expr::*;
+        match *self {
+            Value(val)               => f(val),
+            Add(ref left, ref right) => left.eval_with(f) + right.eval_with(f),
+            Sub(ref left, ref right) => left.eval_with(f) - right.eval_with(f),
+            Mul(ref left, ref right) => left.eval_with(f) * right.eval_with(f),
+            Div(ref left, ref right) => left.eval_with(f) / right.eval_with(f),
+            Paren(ref expr)          => expr.eval_with(f),
+        }
+    }
+
+    pub fn iter(&self) -> ExprIter {
+        ExprIter {
+            stack: vec![self],
+        }
+    }
 }
 
-fn eval<F, V>(expr: &Expr, f: &F) -> V
-    where 
-          F: Fn(&Arg) -> V,
-          V: Add<Output=V> + Sub<Output=V> + Mul<Output=V> + Div<Output=V>
-{
-    match expr {
-        &Expr::Value(ref val)           => f(val),
-        &Expr::Add(ref left, ref right) => eval(left, f) + eval(right, f),
-        &Expr::Sub(ref left, ref right) => eval(left, f) - eval(right, f),
-        &Expr::Mul(ref left, ref right) => eval(left, f) * eval(right, f),
-        &Expr::Div(ref left, ref right) => eval(left, f) / eval(right, f),
-        &Expr::Paren(ref expr)          => eval(expr, f),
+pub struct ExprIter<'a> {
+    stack: Vec<&'a Expr>,
+}
+
+impl<'a> Iterator for ExprIter<'a> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use Expr::*;
+
+        while let Some(current) = self.stack.pop() {
+            match *current {
+                Value(val) => {
+                    return Some(val)
+                }
+
+                Add(ref left, ref right) | Sub(ref left, ref right) |
+                Mul(ref left, ref right) | Div(ref left, ref right) => {
+                    self.stack.push(right);
+                    self.stack.push(left);
+                }
+
+                Paren(ref expr) => {
+                    self.stack.push(expr);
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -52,7 +122,7 @@ pub enum Oper {
 
 impl Display for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
-        use self::Expr::*;
+        use Expr::*;
         match *self {
             Value(ref val) => write!(format, "{}", val),
             Add(ref left, ref right) => write!(format, "{} + {}", left, right),
@@ -66,7 +136,7 @@ impl Display for Expr {
 
 impl Debug for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
-        use self::Expr::*;
+        use Expr::*;
         match *self {
             Value(ref val) => write!(format, "{:?}", val),
             Add(ref left, ref right) => write!(format, "({:?} + {:?})", left, right),
@@ -140,33 +210,6 @@ named!(expr< Expr >, do_parse!(
     (fold_exprs(initial, remainder))
 ));
 
-#[derive(Debug)]
-pub struct Lambda(Expr);
-
-impl Lambda {
-    pub fn from_str(s: &str) -> Result<Lambda, Error> {
-        println!("{}", s);
-        Lambda::from_bytes(s.as_bytes())
-    }
-
-    pub fn from_bytes(s: &[u8]) -> Result<Lambda, Error> {
-        let e = expr(s)
-            .to_full_result()
-            .map_err(Error::ParseError)?;
-
-        Ok(Lambda(e))
-    }
-
-    pub fn eval(&self) -> () {
-        // TODO
-    }
-}
-
-#[derive(Eq, PartialEq, Debug)]
-pub enum Error {
-    ParseError(IError),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,7 +252,7 @@ mod tests {
 
     #[test]
     fn eval_test() {
-        assert_eq!(expr(&b" ( 1 + 2 ) *  3 "[..]).map(|x| eval(&x, &|x| x.clone())),
+        assert_eq!(expr(&b" ( 1 + 2 ) *  3 "[..]).map(|x| x.eval()),
                 IResult::Done(&b""[..], 9));
     }
 }
