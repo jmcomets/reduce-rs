@@ -22,31 +22,27 @@ impl Lambda {
             .map_err(ParseError)
     }
 
-    pub fn eval<V>(&self, vals: &[V], acc: V) -> Result<V, ValidationError>
-        where V: Add<Output = V> + Sub<Output = V> + Mul<Output = V> + Div<Output = V> + Clone
+    pub fn eval<V>(&self, args: &[V], acc: V) -> V
+        where V: Add<Output = V> + Sub<Output = V> +
+                 Mul<Output = V> + Div<Output = V> +
+                 Clone + Default
     {
-        if !self.0.iter().all(|i| i <= vals.len()) {
-            return Err(ValidationError);
-        }
-
-        Ok(self.0
-               .eval_with(&|i| if i == 0 {
-                              acc.clone()
-                          } else {
-                              vals[i - 1].clone()
-                          }))
+        self.0.eval(&|i| if i == 0 {
+            acc.clone()
+        } else if i > args.len() {
+            V::default()
+        } else {
+            args[i - 1].clone()
+        })
     }
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub struct ParseError(IError);
 
-#[derive(Eq, PartialEq, Debug)]
-pub struct ValidationError;
-
 type Arg = usize;
 
-pub enum Expr {
+enum Expr {
     Value(Arg),
     Add(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
@@ -55,76 +51,40 @@ pub enum Expr {
     Paren(Box<Expr>),
 }
 
-impl Expr {
-    pub fn eval_with<F, V>(&self, f: &F) -> V
-        where F: Fn(Arg) -> V,
-              V: Add<Output = V> + Sub<Output = V> + Mul<Output = V> + Div<Output = V>
-    {
-        use Expr::*;
-        match *self {
-            Value(val) => f(val),
-            Add(ref left, ref right) => left.eval_with(f) + right.eval_with(f),
-            Sub(ref left, ref right) => left.eval_with(f) - right.eval_with(f),
-            Mul(ref left, ref right) => left.eval_with(f) * right.eval_with(f),
-            Div(ref left, ref right) => left.eval_with(f) / right.eval_with(f),
-            Paren(ref expr) => expr.eval_with(f),
-        }
-    }
-
-    pub fn iter(&self) -> ExprIter {
-        ExprIter { stack: vec![self] }
-    }
-}
-
-pub struct ExprIter<'a> {
-    stack: Vec<&'a Expr>,
-}
-
-impl<'a> Iterator for ExprIter<'a> {
-    type Item = Arg;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use Expr::*;
-
-        while let Some(current) = self.stack.pop() {
-            match *current {
-                Value(val) => return Some(val),
-
-                Add(ref left, ref right) |
-                Sub(ref left, ref right) |
-                Mul(ref left, ref right) |
-                Div(ref left, ref right) => {
-                    self.stack.push(right);
-                    self.stack.push(left);
-                }
-
-                Paren(ref expr) => {
-                    self.stack.push(expr);
-                }
-            }
-        }
-
-        None
-    }
-}
-
-pub enum Oper {
+enum Oper {
     Add,
     Sub,
     Mul,
     Div,
 }
 
+impl Expr {
+    fn eval<F, V>(&self, f: &F) -> V
+        where F: Fn(Arg) -> V,
+              V: Add<Output = V> + Sub<Output = V> + Mul<Output = V> + Div<Output = V>
+    {
+        use Expr::*;
+        match *self {
+            Value(val)               => f(val),
+            Add(ref left, ref right) => left.eval(f) + right.eval(f),
+            Sub(ref left, ref right) => left.eval(f) - right.eval(f),
+            Mul(ref left, ref right) => left.eval(f) * right.eval(f),
+            Div(ref left, ref right) => left.eval(f) / right.eval(f),
+            Paren(ref expr)          => expr.eval(f),
+        }
+    }
+}
+
 impl Display for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
         use Expr::*;
         match *self {
-            Value(ref val) => write!(format, "{}", val),
+            Value(ref val)           => write!(format, "{}", val),
             Add(ref left, ref right) => write!(format, "{} + {}", left, right),
             Sub(ref left, ref right) => write!(format, "{} - {}", left, right),
             Mul(ref left, ref right) => write!(format, "{} * {}", left, right),
             Div(ref left, ref right) => write!(format, "{} / {}", left, right),
-            Paren(ref expr) => write!(format, "({})", expr),
+            Paren(ref expr)          => write!(format, "({})", expr),
         }
     }
 }
@@ -133,12 +93,12 @@ impl Debug for Expr {
     fn fmt(&self, format: &mut Formatter) -> fmt::Result {
         use Expr::*;
         match *self {
-            Value(ref val) => write!(format, "{:?}", val),
+            Value(ref val)           => write!(format, "{:?}", val),
             Add(ref left, ref right) => write!(format, "({:?} + {:?})", left, right),
             Sub(ref left, ref right) => write!(format, "({:?} - {:?})", left, right),
             Mul(ref left, ref right) => write!(format, "({:?} * {:?})", left, right),
             Div(ref left, ref right) => write!(format, "({:?} / {:?})", left, right),
-            Paren(ref expr) => write!(format, "[{:?}]", expr),
+            Paren(ref expr)          => write!(format, "[{:?}]", expr),
         }
     }
 }
@@ -258,7 +218,7 @@ mod tests {
 
     #[test]
     fn eval_test() {
-        assert_eq!(expr(&b" ( $1 + $2 ) *  $3 "[..]).map(|x| x.eval_with(&|v| v)),
+        assert_eq!(expr(&b" ( $1 + $2 ) *  $3 "[..]).map(|x| x.eval(&|v| v)),
                 IResult::Done(&b""[..], 9));
     }
 }

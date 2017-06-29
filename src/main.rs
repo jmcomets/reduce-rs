@@ -21,24 +21,22 @@ Usage:
     reduce [options] <lambda> [<init>]
     reduce (-h|--help)
 
-Apply the lambda expression to the input as a fold, with the lines being the
-list and the columns being the arguments tuple. Integer, floating or boolean
-arithmetics are available, depending on the type chosen (defaults to integer).
+Apply the lambda expression to the input as a fold, with the lines being the list and the columns
+being the arguments. Integer, floating or boolean arithmetics are available, depending on the type
+chosen (defaults to integer).
 
 Arguments:
-    LAMBDA      Valid haskell-y lambda expression (`args -> expression`).
-                The expression should return a tuple of values
-                (parens can be ignored for a singleton).
+    LAMBDA      Valid expression for the current type, args are positional, and prefixed with a '$'
+                sign (ex: $1, $2). $0 is special as it represents the fold accumulator.
     INIT        Start value for the fold. Defaults:
                     "0" for integers
                     "0.0" for doubles
                     "true" for booleans
 
 Options:
-    --type=<type>               Sets the input type for the lambda expression [default: int].
-    --separator=<sep>           Sets the separator [default: " "].
-    --exit                      Use the exit code to output the result
-                                (conflicts with multi-column output).
+    -t=<type>, --type=<type>            Sets the input type for the lambda expression [default: int].
+    -d=<delim>, --delimiter=<delim>     Sets the column delimiter [default: " "].
+    --exit                              Use the exit code to output the result.
 "#;
 
 
@@ -55,10 +53,10 @@ impl<'de> Visitor<'de> for ReturnTypeVisitor {
         where E: Error
     {
         match s {
-            "bool" => Ok(ReturnType::Boolean),
+            "bool"  => Ok(ReturnType::Boolean),
             "float" => Ok(ReturnType::Floating),
-            "int" => Ok(ReturnType::Integer),
-            _ => Err(Error::custom(format!("invalid type {}", s))),
+            "int"   => Ok(ReturnType::Integer),
+            _       => Err(Error::custom(format!("invalid type {}", s))),
         }
     }
 }
@@ -78,13 +76,12 @@ impl<'de> Deserialize<'de> for ReturnType {
     }
 }
 
-
 #[derive(Debug, Deserialize)]
 struct Args {
     arg_lambda: String,
     arg_init: Option<String>,
     flag_type: ReturnType,
-    flag_separator: String,
+    flag_delimiter: String,
     flag_exit: bool,
 }
 
@@ -96,8 +93,9 @@ fn main() {
 
     let init = args.arg_init
         .map(|v| v.parse::<i32>().unwrap())
-        .unwrap_or(0);
-    let lambda = parse_input(&args.arg_lambda, args.flag_type).unwrap();
+        .unwrap_or_default();
+    let lambda = reduce::Lambda::from_str(&args.arg_lambda).unwrap();
+    let delimiter = args.flag_delimiter.chars().nth(1).unwrap();
     //println!("evaluating: {:?}", lambda);
 
     let input = io::stdin();
@@ -105,6 +103,8 @@ fn main() {
 
     let value = reader
         .lines()
+
+        // validate the lines
         .enumerate()
         .map(|(i, r)| {
                  r.unwrap_or_else(|e| {
@@ -113,16 +113,20 @@ fn main() {
                                       process::exit(1);
                                   })
              })
+
+        // parse the arguments for each line
         .map(|l| {
-                 l.split(" ")
+                 l.split(delimiter)
                      .map(|s| s.parse::<i32>().unwrap())
                      .collect::<Vec<_>>()
              })
-        .fold(init, |acc, vs| lambda.eval(&vs, acc).unwrap());
 
-    println!("{}", value);
-}
+        // fold using the lambda expression
+        .fold(init, |acc, vs| lambda.eval(&vs, acc));
 
-fn parse_input(s: &str, _: ReturnType) -> Result<reduce::Lambda, reduce::ParseError> {
-    reduce::Lambda::from_str(s)
+    if args.flag_exit {
+        process::exit(value);
+    } else {
+        println!("{}", value);
+    }
 }
