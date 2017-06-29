@@ -5,6 +5,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
+use std::error::Error;
+
 use std::io;
 use std::io::{Write, BufRead, BufReader};
 
@@ -14,7 +16,7 @@ use std::fmt;
 
 use docopt::Docopt;
 
-use serde::de::{Deserialize, Deserializer, Error, Visitor};
+use serde::de::{Deserialize, Deserializer, Error as DeserializeError, Visitor};
 
 const USAGE: &str = r#"
 Usage:
@@ -50,13 +52,13 @@ impl<'de> Visitor<'de> for ReturnTypeVisitor {
     }
 
     fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-        where E: Error
+        where E: DeserializeError
     {
         match s {
             "bool"  => Ok(ReturnType::Boolean),
             "float" => Ok(ReturnType::Floating),
             "int"   => Ok(ReturnType::Integer),
-            _       => Err(Error::custom(format!("invalid type {}", s))),
+            _       => Err(DeserializeError::custom(format!("invalid type {}", s))),
         }
     }
 }
@@ -130,3 +132,13 @@ fn main() {
         println!("{}", value);
     }
 }
+
+// fn parse_value(s: &str, returnType: ReturnType) -> Result<Box<reduce::Value>, Box<Error>> {
+//     use ReturnType::*;
+
+//     match returnType {
+//         Boolean  => s.parse::<bool>().map(Box::new).map_err(Box::new),
+//         Integer  => s.parse::<i32>().map(Box::new).map_err(Box::new),
+//         Floating => s.parse::<f32>().map(Box::new).map_err(Box::new),
+//     }
+// }

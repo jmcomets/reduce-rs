@@ -11,6 +11,19 @@ use std::ops::{Add, Sub, Mul, Div};
 
 use nom::{digit, IError};
 
+pub trait Value : Add<Output=Self> + Sub<Output=Self> +
+                  Mul<Output=Self> + Div<Output=Self> +
+                  Clone + Default
+{
+}
+
+impl<T> Value for T
+    where T: Add<Output=T> + Sub<Output=T> +
+             Mul<Output=T> + Div<Output=T> +
+             Clone + Default
+{
+}
+
 #[derive(Debug)]
 pub struct Lambda(Expr);
 
@@ -22,13 +35,11 @@ impl Lambda {
             .map_err(ParseError)
     }
 
-    pub fn eval<V>(&self, args: &[V], acc: V) -> V
-        where V: Add<Output = V> + Sub<Output = V> +
-                 Mul<Output = V> + Div<Output = V> +
-                 Clone + Default
+    pub fn eval<V>(&self, args: &[V], zero: V) -> V
+        where V: Value
     {
         self.0.eval(&|i| if i == 0 {
-            acc.clone()
+            zero.clone()
         } else if i > args.len() {
             V::default()
         } else {
@@ -48,14 +59,11 @@ enum Expr {
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
+    // LessThan(Box<Expr>, Box<Expr>),
+    // GreaterThan(Box<Expr>, Box<Expr>),
+    // LessThanOrEqualTo(Box<Expr>, Box<Expr>),
+    // GreaterThanOrEqualTo(Box<Expr>, Box<Expr>),
     Paren(Box<Expr>),
-}
-
-enum Oper {
-    Add,
-    Sub,
-    Mul,
-    Div,
 }
 
 impl Expr {
@@ -103,6 +111,45 @@ impl Debug for Expr {
     }
 }
 
+enum Oper {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+impl Oper {
+    fn to_expr(&self, lhs: Expr, rhs: Expr) -> Expr {
+        use Oper::*;
+        match *self {
+            Add => Expr::Add(Box::new(lhs), Box::new(rhs)),
+            Sub => Expr::Sub(Box::new(lhs), Box::new(rhs)),
+            Mul => Expr::Mul(Box::new(lhs), Box::new(rhs)),
+            Div => Expr::Div(Box::new(lhs), Box::new(rhs)),
+        }
+    }
+}
+
+fn fold_exprs(initial: Expr, remainder: Vec<(Oper, Expr)>) -> Expr {
+    remainder
+        .into_iter()
+        .fold(initial, |lhs, (oper, rhs)| oper.to_expr(lhs, rhs))
+}
+
+named!(arg< Arg >, ws!(
+        map_res!(
+            map_res!(
+                do_parse!(
+                    char!('$') >>
+                    d: digit >>
+                    (d)
+                ),
+                str::from_utf8
+                ),
+                FromStr::from_str)
+        )
+      );
+
 named!(parens< Expr >, ws!(
     delimited!(
         tag!("("),
@@ -126,34 +173,6 @@ named!(factor< Expr >, alt_complete!(
     )
 );
 
-named!(arg< Arg >, ws!(
-        map_res!(
-            map_res!(
-                do_parse!(
-                    char!('$') >>
-                    d: digit >>
-                    (d)
-                ),
-                str::from_utf8
-                ),
-                FromStr::from_str)
-        )
-      );
-
-fn fold_exprs(initial: Expr, remainder: Vec<(Oper, Expr)>) -> Expr {
-    remainder
-        .into_iter()
-        .fold(initial, |acc, pair| {
-            let (oper, expr) = pair;
-            match oper {
-                Oper::Add => Expr::Add(Box::new(acc), Box::new(expr)),
-                Oper::Sub => Expr::Sub(Box::new(acc), Box::new(expr)),
-                Oper::Mul => Expr::Mul(Box::new(acc), Box::new(expr)),
-                Oper::Div => Expr::Div(Box::new(acc), Box::new(expr)),
-            }
-        })
-}
-
 named!(term< Expr >, do_parse!(
     initial: factor >>
     remainder: many0!(
@@ -175,6 +194,8 @@ named!(expr< Expr >, do_parse!(
          ) >>
     (fold_exprs(initial, remainder))
 ));
+
+named!(expr< Expr >, );
 
 #[cfg(test)]
 mod tests {
