@@ -1,22 +1,16 @@
-extern crate reduce;
-
 extern crate docopt;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 
-use std::error::Error;
+extern crate serde;
+#[macro_use] extern crate serde_derive;
+
+extern crate reduce;
 
 use std::io;
 use std::io::{Write, BufRead, BufReader};
 
 use std::process;
 
-use std::fmt;
-
-use docopt::Docopt;
-
-use serde::de::{Deserialize, Deserializer, Error as DeserializeError, Visitor};
+use std::str::FromStr;
 
 const USAGE: &str = r#"
 Usage:
@@ -30,72 +24,28 @@ chosen (defaults to integer).
 Arguments:
     LAMBDA      Valid expression for the current type, args are positional, and prefixed with a '$'
                 sign (ex: $1, $2). $0 is special as it represents the fold accumulator.
-    INIT        Start value for the fold. Defaults:
-                    "0" for integers
-                    "0.0" for doubles
-                    "true" for booleans
+    INIT        Start value for the fold (default: 0).
 
 Options:
-    -t=<type>, --type=<type>            Sets the input type for the lambda expression [default: int].
     -d=<delim>, --delimiter=<delim>     Sets the column delimiter [default: " "].
     --exit                              Use the exit code to output the result.
 "#;
 
-
-struct ReturnTypeVisitor;
-
-impl<'de> Visitor<'de> for ReturnTypeVisitor {
-    type Value = ReturnType;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a type int, float or bool")
-    }
-
-    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-        where E: DeserializeError
-    {
-        match s {
-            "bool"  => Ok(ReturnType::Boolean),
-            "float" => Ok(ReturnType::Floating),
-            "int"   => Ok(ReturnType::Integer),
-            _       => Err(DeserializeError::custom(format!("invalid type {}", s))),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum ReturnType {
-    Boolean,
-    Floating,
-    Integer,
-}
-
-impl<'de> Deserialize<'de> for ReturnType {
-    fn deserialize<D>(d: D) -> Result<ReturnType, D::Error>
-        where D: Deserializer<'de>
-    {
-        d.deserialize_str(ReturnTypeVisitor)
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct Args {
     arg_lambda: String,
-    arg_init: Option<String>,
-    flag_type: ReturnType,
+    arg_init: i32,
     flag_delimiter: String,
     flag_exit: bool,
 }
 
 fn main() {
-    let args: Args = Docopt::new(USAGE)
+    let args: Args = docopt::Docopt::new(USAGE)
         .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
     //println!("args: {:?}", args);
 
-    let init = args.arg_init
-        .map(|v| v.parse::<i32>().unwrap())
-        .unwrap_or_default();
+    let init = args.arg_init;
     let lambda = reduce::Lambda::from_str(&args.arg_lambda).unwrap();
     let delimiter = args.flag_delimiter.chars().nth(1).unwrap();
     //println!("evaluating: {:?}", lambda);
@@ -120,25 +70,16 @@ fn main() {
         .map(|l| {
                  l.split(delimiter)
                      .map(|s| s.parse::<i32>().unwrap())
+                     .map(reduce::AutoInt::from)
                      .collect::<Vec<_>>()
              })
 
         // fold using the lambda expression
-        .fold(init, |acc, vs| lambda.eval(&vs, acc));
+        .fold(reduce::AutoInt::from(init), |acc, vs| lambda.eval(&vs, acc));
 
     if args.flag_exit {
-        process::exit(value);
+        process::exit(value.into());
     } else {
         println!("{}", value);
     }
 }
-
-// fn parse_value(s: &str, returnType: ReturnType) -> Result<Box<reduce::Value>, Box<Error>> {
-//     use ReturnType::*;
-
-//     match returnType {
-//         Boolean  => s.parse::<bool>().map(Box::new).map_err(Box::new),
-//         Integer  => s.parse::<i32>().map(Box::new).map_err(Box::new),
-//         Floating => s.parse::<f32>().map(Box::new).map_err(Box::new),
-//     }
-// }
